@@ -1,0 +1,103 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: 'backend-tempo-leads
+
+  Sample SAM Template for backend-tempo-leads
+
+  '
+Globals:
+  Function:
+    Tracing: Active
+  Api:
+    Cors:
+      AllowMethods: '''GET,POST,OPTIONS'''
+      AllowHeaders: '''*'''
+      AllowOrigin: '''*'''
+      AllowCredentials: '''*'''
+    TracingEnabled: true
+Resources:
+  MySQSQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: TempoLeadsQueue
+  producerForTempoLeads:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: producerForTempoLeads.handler
+      Runtime: nodejs16.x
+      Architectures:
+      - x86_64
+      MemorySize: 128
+      Timeout: 100
+      Policies:
+      - SQSSendMessagePolicy:
+          QueueName:
+            Fn::GetAtt:
+            - MySQSQueue
+            - QueueName
+      Environment:
+        Variables:
+          INVOCATION_QUEUE_URL:
+            Ref: MySQSQueue
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /producerForTempoLeads
+            Method: POST
+      CodeUri: producerForTempoLeads
+    Metadata:
+      SamResourceId: producerForTempoLeads
+  ConsumerForTempoLeads:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: ConsumerForTempoLeads
+      Runtime: nodejs16.x
+      Handler: ConsumerForTempoLeads.handler
+      Role:
+        Fn::GetAtt:
+        - consumerLambdaExecutionRole
+        - Arn
+      Events:
+        MySQSEvent:
+          Type: SQS
+          Properties:
+            Queue:
+              Fn::GetAtt:
+              - MySQSQueue
+              - Arn
+            BatchSize: 1
+      CodeUri: ConsumerForTempoLeads
+    Metadata:
+      SamResourceId: ConsumerForTempoLeads
+  consumerLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - Fn::Sub: lambda.amazonaws.com
+          Action: sts:AssumeRole
+      Path: /
+      Policies:
+      - PolicyName: consumerLambdaExecutionPolicy
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - states:StartExecution
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            - sqs:ReceiveMessage
+            - sqs:DeleteMessage
+            - sqs:GetQueueAttributes
+            Resource: '*'
+Outputs:
+  ApiEndpoint:
+    Value:
+      Fn::Sub: https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/
